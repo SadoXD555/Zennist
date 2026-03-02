@@ -1,0 +1,154 @@
+-- ================================================================
+--  Zennist Hub  -  Loader
+--  _G.Key = "ZENN-XXXX-YYYY-ZZZZ"
+--  loadstring(game:HttpGet("link_nee"))()
+-- ================================================================
+
+local DATABASE_URL = "https://zennist-default-rtdb.firebaseio.com"
+local MAIN_SCRIPT  = "https://pastebin.com/raw/CwP2mhru"
+local HUB_NAME     = "Zennist Hub"
+
+-- ================================================================
+--  Services
+-- ================================================================
+local HttpService = game:GetService("HttpService")
+local Players     = game:GetService("Players")
+local Client      = Players.LocalPlayer
+
+-- ================================================================
+--  HWID
+-- ================================================================
+local function getHWID()
+    local ok, hwid = pcall(function()
+        return game:GetService("RbxAnalyticsService"):GetClientId()
+    end)
+    if ok and hwid and hwid ~= "" then return hwid end
+    return tostring(Client.UserId)
+end
+
+-- ================================================================
+--  Firebase GET
+-- ================================================================
+local function firebaseGet(path)
+    local url = DATABASE_URL .. "/" .. path .. ".json"
+    local ok, res = pcall(game.HttpGet, game, url)
+    if not ok or not res then return nil end
+    local ok2, decoded = pcall(HttpService.JSONDecode, HttpService, res)
+    if ok2 then return decoded end
+    return nil
+end
+
+-- ================================================================
+--  Firebase PATCH  (รองรับทุก executor)
+-- ================================================================
+local function firebasePatch(path, data)
+    local url  = DATABASE_URL .. "/" .. path .. ".json"
+    local body = HttpService:JSONEncode(data)
+    local headers = {["Content-Type"] = "application/json"}
+
+    local requestFunc =
+        (syn and syn.request) or
+        (http and http.request) or
+        (http_request) or
+        (request) or
+        nil
+
+    if requestFunc then
+        local ok = pcall(requestFunc, {
+            Url     = url,
+            Method  = "PATCH",
+            Headers = headers,
+            Body    = body,
+        })
+        return ok
+    else
+        local ok = pcall(function()
+            HttpService:RequestAsync({
+                Url     = url,
+                Method  = "PUT",
+                Headers = headers,
+                Body    = body,
+            })
+        end)
+        return ok
+    end
+end
+
+local function keyToPath(key)
+    return key:gsub("%.", "_")
+end
+
+-- ================================================================
+--  Kick  (ใช้ Roblox UI ปกติ ไม่มี UI ดำ)
+-- ================================================================
+local function kickPlayer(msg)
+    task.wait(0.5)
+    pcall(function()
+        Client:Kick(
+            "\n" .. HUB_NAME .. "\n\n" ..
+            msg ..
+            "\n\n- " .. HUB_NAME .. " Security"
+        )
+    end)
+end
+
+-- ================================================================
+--  เช็ค Key
+-- ================================================================
+local inputKey = tostring(_G.Key or ""):gsub("%s", "")
+
+if inputKey == "" then
+    kickPlayer("ไม่พบ Key\nกรุณาใส่ _G.Key ก่อนรันสคริป")
+    return
+end
+
+local dbPath = "keys/" .. keyToPath(inputKey)
+local data   = firebaseGet(dbPath)
+
+if type(data) ~= "table" then
+    kickPlayer("Key ไม่ถูกต้อง")
+    return
+end
+
+if data.blacklisted == true then
+    kickPlayer("Key ถูก Blacklist\nติดต่อ Admin ใน Discord")
+    return
+end
+
+if type(data.expires_at) == "string" and data.expires_at ~= "" then
+    local y,mo,d,h,mi,s = data.expires_at:match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
+    if y then
+        local expireTime = os.time({
+            year  = tonumber(y),  month = tonumber(mo), day = tonumber(d),
+            hour  = tonumber(h),  min   = tonumber(mi), sec = tonumber(s)
+        })
+        if os.time() > expireTime then
+            kickPlayer("Key หมดอายุแล้ว\nต่ออายุได้ใน Discord")
+            return
+        end
+    end
+end
+
+-- ================================================================
+--  เช็ค HWID
+-- ================================================================
+local currentHWID = getHWID()
+local savedHWID   = data.hwid
+
+if not savedHWID or savedHWID == "" or savedHWID == false then
+    local ok = firebasePatch(dbPath, {hwid = currentHWID})
+    if not ok then
+        task.wait(1)
+        ok = firebasePatch(dbPath, {hwid = currentHWID})
+    end
+else
+    if tostring(savedHWID) ~= tostring(currentHWID) then
+        kickPlayer("HWID ไม่ตรง\nเครื่องนี้ไม่ได้รับอนุญาต\nReset HWID ได้ที่ Discord")
+        return
+    end
+end
+
+-- ================================================================
+--  ผ่าน โหลด Script หลัก
+-- ================================================================
+loadstring(game:HttpGet(MAIN_SCRIPT))()
