@@ -87,7 +87,7 @@ local function kickPlayer(msg)
         Client:Kick(
             "\n" .. HUB_NAME .. "\n\n" ..
             msg ..
-            "\n\n- " .. HUB_NAME .. 
+            "\n\n- " .. HUB_NAME .. " "
         )
     end)
 end
@@ -111,7 +111,7 @@ if type(data) ~= "table" then
 end
 
 if data.blacklisted == true then
-    kickPlayer("Key ถูก Blacklist")
+    kickPlayer("Key ถูก Blacklist\nติดต่อ Admin ใน Discord")
     return
 end
 
