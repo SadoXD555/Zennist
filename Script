@@ -5,8 +5,20 @@
 -- ================================================================
 
 local DATABASE_URL = "https://zennist-default-rtdb.firebaseio.com"
-local MAIN_SCRIPT  = "https://pastebin.com/raw/CwP2mhru"
 local HUB_NAME     = "Zennist Hub"
+
+-- ================================================================
+--  แมพที่รองรับ  [PlaceId] = "link script"
+--  เพิ่มแมพใหม่ได้ตรงนี้เลย
+-- ================================================================
+local SUPPORTED_MAPS = {
+    -- Attack on Titan Renaissance
+    [13379208636] = "https://pastebin.com/raw/CwP2mhru",
+    [17688739434] = "https://pastebin.com/raw/CwP2mhru",
+
+    -- เพิ่มแมพอื่นได้แบบนี้
+    -- [PlaceId] = "https://pastebin.com/raw/XXXXXXXX",
+}
 
 -- ================================================================
 --  Services
@@ -87,7 +99,7 @@ local function kickPlayer(msg)
         Client:Kick(
             "\n" .. HUB_NAME .. "\n\n" ..
             msg ..
-            "\n\n- " .. HUB_NAME .. " "
+            "\n\n- " .. HUB_NAME .. " Security"
         )
     end)
 end
@@ -143,12 +155,21 @@ if not savedHWID or savedHWID == "" or savedHWID == false then
     end
 else
     if tostring(savedHWID) ~= tostring(currentHWID) then
-        kickPlayer("HWID ไม่ตรง\nReset HWID ได้ที่ Discord")
+        kickPlayer("HWID ไม่ตรง\nเครื่องนี้ไม่ได้รับอนุญาต\nReset HWID ได้ที่ Discord")
         return
     end
 end
 
 -- ================================================================
---  ผ่าน โหลด Script หลัก
+--  ผ่าน → เช็ค PlaceId โหลด Script ของแมพนั้น
 -- ================================================================
-loadstring(game:HttpGet(MAIN_SCRIPT))()
+local placeId    = game.PlaceId
+local scriptLink = SUPPORTED_MAPS[placeId]
+
+if not scriptLink then
+    kickPlayer("แมพนี้ไม่รองรับ\nPlaceId: " .. tostring(placeId) .. "\nติดต่อ Admin ใน Discord")
+    return
+end
+
+print("[" .. HUB_NAME .. "] PlaceId: " .. tostring(placeId) .. " | กำลังโหลด...")
+loadstring(game:HttpGet(scriptLink))()
