@@ -14,7 +14,7 @@ local HUB_NAME     = "Zennist Hub"
 local SUPPORTED_MAPS = {
     -- Attack on Titan Renaissance
     [13379208636] = "https://pastebin.com/raw/CwP2mhru",
-    [17688739434] = "https://pastebin.com/raw/CwP2mhru",
+    [123974602339071] = "https://pastebin.com/raw/CwP2mhru",
 
     -- เพิ่มแมพอื่นได้แบบนี้
     -- [PlaceId] = "https://pastebin.com/raw/XXXXXXXX",
@@ -99,7 +99,7 @@ local function kickPlayer(msg)
         Client:Kick(
             "\n" .. HUB_NAME .. "\n\n" ..
             msg ..
-            "\n\n- " .. HUB_NAME .. " Security"
+            "\n\n- " .. HUB_NAME .. " "
         )
     end)
 end
