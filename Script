@@ -87,7 +87,7 @@ local function kickPlayer(msg)
         Client:Kick(
             "\n" .. HUB_NAME .. "\n\n" ..
             msg ..
-            "\n\n- " .. HUB_NAME .. " Security"
+            "\n\n- " .. HUB_NAME .. 
         )
     end)
 end
@@ -111,7 +111,7 @@ if type(data) ~= "table" then
 end
 
 if data.blacklisted == true then
-    kickPlayer("Key ถูก Blacklist\nติดต่อ Admin ใน Discord")
+    kickPlayer("Key ถูก Blacklist")
     return
 end
 
@@ -143,7 +143,7 @@ if not savedHWID or savedHWID == "" or savedHWID == false then
     end
 else
     if tostring(savedHWID) ~= tostring(currentHWID) then
-        kickPlayer("HWID ไม่ตรง\nเครื่องนี้ไม่ได้รับอนุญาต\nReset HWID ได้ที่ Discord")
+        kickPlayer("HWID ไม่ตรง\nReset HWID ได้ที่ Discord")
         return
     end
 end
