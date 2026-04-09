@@ -3,7 +3,7 @@ local DATABASE_URL = "https://zennist-default-rtdb.firebaseio.com"
 local HUB_NAME     = "Zen"
 
 local SUPPORTED_MAPS = {
-    { name = "Universal (ESP Only)", placeId = 0,               script = nil },
+    { name = "Universal (ESP Only)", placeId = 0,               script = https://pastebin.com/raw/fmJ7Py3h },
     { name = "Attack on Titan",      placeId = 13379208636,     script = "https://pastebin.com/raw/CwP2mhru" },
     { name = "AoT Renaissance",      placeId = 123974602339071, script = "https://pastebin.com/raw/CwP2mhru" },
 }
