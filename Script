@@ -3,7 +3,7 @@ local DATABASE_URL = "https://zennist-default-rtdb.firebaseio.com"
 local HUB_NAME     = "Zen"
 
 local SUPPORTED_MAPS = {
-    { name = "Universal (ESP Only)", placeId = 0,               script = https://pastebin.com/raw/fmJ7Py3h },
+    { name = "Universal (ESP Only)", placeId = 0,               script = nil },
     { name = "Attack on Titan",      placeId = 13379208636,     script = "https://pastebin.com/raw/CwP2mhru" },
     { name = "AoT Renaissance",      placeId = 123974602339071, script = "https://pastebin.com/raw/CwP2mhru" },
 }
@@ -1257,9 +1257,25 @@ local function VerifyKey()
             isVerifying          = false
             return
         end
-        if type(data.expires_at) == "string" and data.expires_at ~= "" then
+        -- เช็ค expires_unix (Unix timestamp UTC) แก้บัค timezone
+        local expireUnix = tonumber(data.expires_unix)
+        if expireUnix and expireUnix > 0 then
+            -- os.time() ใน Roblox = local time, ต้องแปลงเป็น UTC
+            -- offset = os.time() - os.time(os.date("!*t")) ≈ timezone offset
+            local utcNow = os.time(os.date("!*t"))
+            if utcNow > expireUnix then
+                keyStatus.Text       = "Key expired"
+                keyStatus.TextColor3 = C.red
+                keyLoading.Text      = ""
+                keySubmit.Text       = "Verify Key"
+                isVerifying          = false
+                return
+            end
+        elseif type(data.expires_at) == "string" and data.expires_at ~= "" then
+            -- fallback สำหรับ key เก่าที่ยังใช้ string
             local y, mo, d, h, mi, s = data.expires_at:match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
             if y then
+                -- แปลง UTC string → unix แบบ manual โดยใช้ os.date UTC
                 local expireTime = os.time({
                     year  = tonumber(y),
                     month = tonumber(mo),
@@ -1268,7 +1284,11 @@ local function VerifyKey()
                     min   = tonumber(mi),
                     sec   = tonumber(s),
                 })
-                if os.time() > expireTime then
+                -- หา UTC offset แล้วชดเชย
+                local localNow = os.time()
+                local utcNow2  = os.time(os.date("!*t"))
+                local tzOffset = localNow - utcNow2
+                if (localNow - tzOffset) > expireTime then
                     keyStatus.Text       = "Key expired"
                     keyStatus.TextColor3 = C.red
                     keyLoading.Text      = ""
