@@ -1,35 +1,23 @@
--- ================================================================
---  Zennist Hub  -  Loader
---  _G.Key = "ZENN-XXXX-YYYY-ZZZZ"
---  loadstring(game:HttpGet("link_nee"))()
--- ================================================================
-
+-- Config
 local DATABASE_URL = "https://zennist-default-rtdb.firebaseio.com"
-local HUB_NAME     = "Zennist Hub"
+local HUB_NAME     = "Zen"
 
--- ================================================================
---  แมพที่รองรับ  [PlaceId] = "link script"
---  เพิ่มแมพใหม่ได้ตรงนี้เลย
--- ================================================================
 local SUPPORTED_MAPS = {
-    -- Attack on Titan Renaissance
-    [13379208636] = "https://pastebin.com/raw/CwP2mhru",
-    [123974602339071] = "https://pastebin.com/raw/CwP2mhru",
-
-    -- เพิ่มแมพอื่นได้แบบนี้
-    -- [PlaceId] = "https://pastebin.com/raw/XXXXXXXX",
+    { name = "Universal (ESP Only)", placeId = 0,               script = https://pastebin.com/raw/fmJ7Py3h },
+    { name = "Attack on Titan",      placeId = 13379208636,     script = "https://pastebin.com/raw/CwP2mhru" },
+    { name = "AoT Renaissance",      placeId = 123974602339071, script = "https://pastebin.com/raw/CwP2mhru" },
 }
 
--- ================================================================
---  Services
--- ================================================================
-local HttpService = game:GetService("HttpService")
-local Players     = game:GetService("Players")
-local Client      = Players.LocalPlayer
+-- Services
+local HttpService      = game:GetService("HttpService")
+local Players          = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local RunService       = game:GetService("RunService")
+local CoreGui          = game:GetService("CoreGui")
+local Client           = Players.LocalPlayer
 
--- ================================================================
---  HWID
--- ================================================================
+-- HWID
 local function getHWID()
     local ok, hwid = pcall(function()
         return game:GetService("RbxAnalyticsService"):GetClientId()
@@ -38,9 +26,7 @@ local function getHWID()
     return tostring(Client.UserId)
 end
 
--- ================================================================
---  Firebase GET
--- ================================================================
+-- Firebase GET
 local function firebaseGet(path)
     local url = DATABASE_URL .. "/" .. path .. ".json"
     local ok, res = pcall(game.HttpGet, game, url)
@@ -50,39 +36,18 @@ local function firebaseGet(path)
     return nil
 end
 
--- ================================================================
---  Firebase PATCH  (รองรับทุก executor)
--- ================================================================
+-- Firebase PATCH
 local function firebasePatch(path, data)
-    local url  = DATABASE_URL .. "/" .. path .. ".json"
-    local body = HttpService:JSONEncode(data)
-    local headers = {["Content-Type"] = "application/json"}
-
-    local requestFunc =
-        (syn and syn.request) or
-        (http and http.request) or
-        (http_request) or
-        (request) or
-        nil
-
+    local url     = DATABASE_URL .. "/" .. path .. ".json"
+    local body    = HttpService:JSONEncode(data)
+    local headers = { ["Content-Type"] = "application/json" }
+    local requestFunc = (syn and syn.request) or (http and http.request) or http_request or request or nil
     if requestFunc then
-        local ok = pcall(requestFunc, {
-            Url     = url,
-            Method  = "PATCH",
-            Headers = headers,
-            Body    = body,
-        })
-        return ok
+        pcall(requestFunc, { Url = url, Method = "PATCH", Headers = headers, Body = body })
     else
-        local ok = pcall(function()
-            HttpService:RequestAsync({
-                Url     = url,
-                Method  = "PUT",
-                Headers = headers,
-                Body    = body,
-            })
+        pcall(function()
+            HttpService:RequestAsync({ Url = url, Method = "PUT", Headers = headers, Body = body })
         end)
-        return ok
     end
 end
 
@@ -90,86 +55,1264 @@ local function keyToPath(key)
     return key:gsub("%.", "_")
 end
 
--- ================================================================
---  Kick  (ใช้ Roblox UI ปกติ ไม่มี UI ดำ)
--- ================================================================
-local function kickPlayer(msg)
-    task.wait(0.5)
-    pcall(function()
-        Client:Kick(
-            "\n" .. HUB_NAME .. "\n\n" ..
-            msg ..
-            "\n\n- " .. HUB_NAME .. " "
-        )
+-- Cleanup
+for _, name in ipairs({ "ZEN_UI", "Highlight_Storage" }) do
+    local old = CoreGui:FindFirstChild(name)
+    if old then old:Destroy() end
+end
+
+-- Colors
+local C = {
+    bg       = Color3.fromRGB(12,  12,  16),
+    surface  = Color3.fromRGB(20,  20,  26),
+    surface2 = Color3.fromRGB(28,  28,  36),
+    border   = Color3.fromRGB(45,  45,  60),
+    text     = Color3.fromRGB(220, 220, 235),
+    subtext  = Color3.fromRGB(110, 110, 135),
+    accent   = Color3.fromRGB(100, 160, 255),
+    red      = Color3.fromRGB(220, 60,  70),
+    green    = Color3.fromRGB(50,  200, 110),
+    blue     = Color3.fromRGB(60,  120, 220),
+    orange   = Color3.fromRGB(220, 140, 40),
+    muted    = Color3.fromRGB(45,  45,  58),
+}
+
+local tweenFast = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local tweenMed  = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local tweenSlow = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- ScreenGui
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = "ZEN_UI"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent         = CoreGui
+
+-- Ripple
+local function MakeRipple(btn)
+    local mouse = UserInputService:GetMouseLocation()
+    local abs   = btn.AbsolutePosition
+    local r     = Instance.new("Frame")
+    r.Size                    = UDim2.new(0, 0, 0, 0)
+    r.Position                = UDim2.new(0, mouse.X - abs.X, 0, mouse.Y - abs.Y)
+    r.AnchorPoint             = Vector2.new(0.5, 0.5)
+    r.BackgroundColor3        = Color3.fromRGB(255, 255, 255)
+    r.BackgroundTransparency  = 0.82
+    r.BorderSizePixel         = 0
+    r.ZIndex                  = 20
+    r.ClipsDescendants        = false
+    r.Parent                  = btn
+    Instance.new("UICorner", r).CornerRadius = UDim.new(1, 0)
+    TweenService:Create(r, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 260, 0, 260),
+        BackgroundTransparency = 1,
+    }):Play()
+    task.delay(0.45, function()
+        if r and r.Parent then r:Destroy() end
     end)
 end
 
+-- Generic button
+local function MakeBtn(parent, text, bgColor, textColor, size, pos, zindex)
+    local b = Instance.new("TextButton")
+    b.Size             = size or UDim2.new(1, 0, 0, 38)
+    b.Position         = pos  or UDim2.new(0, 0, 0, 0)
+    b.BackgroundColor3 = bgColor
+    b.TextColor3       = textColor or C.text
+    b.Text             = text
+    b.Font             = Enum.Font.GothamBold
+    b.TextSize         = 13
+    b.AutoButtonColor  = false
+    b.BorderSizePixel  = 0
+    b.ClipsDescendants = true
+    b.ZIndex           = zindex or 5
+    b.Parent           = parent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    local base = bgColor
+    b.MouseButton1Down:Connect(function()
+        MakeRipple(b)
+        TweenService:Create(b, tweenFast, { BackgroundColor3 = base:Lerp(Color3.new(0,0,0), 0.2) }):Play()
+    end)
+    b.MouseButton1Up:Connect(function()
+        TweenService:Create(b, tweenMed, { BackgroundColor3 = base }):Play()
+    end)
+    b.MouseEnter:Connect(function()
+        TweenService:Create(b, tweenFast, { BackgroundColor3 = base:Lerp(Color3.new(1,1,1), 0.08) }):Play()
+    end)
+    b.MouseLeave:Connect(function()
+        TweenService:Create(b, tweenMed, { BackgroundColor3 = base }):Play()
+    end)
+    return b
+end
+
 -- ================================================================
---  เช็ค Key
+--  KEY SCREEN
 -- ================================================================
-local inputKey = tostring(_G.Key or ""):gsub("%s", "")
+local keyScreen = Instance.new("CanvasGroup")
+keyScreen.Name              = "KeyScreen"
+keyScreen.Size              = UDim2.new(1, 0, 1, 0)
+keyScreen.BackgroundColor3  = C.bg
+keyScreen.BorderSizePixel   = 0
+keyScreen.GroupTransparency = 0
+keyScreen.ZIndex            = 50
+keyScreen.Parent            = ScreenGui
 
-if inputKey == "" then
-    kickPlayer("ไม่พบ Key\nกรุณาใส่ _G.Key ก่อนรันสคริป")
-    return
+local keyBG = Instance.new("Frame")
+keyBG.Size             = UDim2.new(1, 0, 1, 0)
+keyBG.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
+keyBG.BorderSizePixel  = 0
+keyBG.ZIndex           = 50
+keyBG.Parent           = keyScreen
+
+local keyCard = Instance.new("Frame")
+keyCard.Size             = UDim2.new(0, 360, 0, 300)
+keyCard.Position         = UDim2.new(0.5, -180, 0.5, -150)
+keyCard.BackgroundColor3 = C.surface
+keyCard.BorderSizePixel  = 0
+keyCard.ZIndex           = 52
+keyCard.Parent           = keyScreen
+Instance.new("UICorner", keyCard).CornerRadius = UDim.new(0, 14)
+local ks = Instance.new("UIStroke")
+ks.Color = C.border
+ks.Thickness = 1
+ks.Transparency = 0.3
+ks.Parent = keyCard
+
+local keyHeader = Instance.new("Frame")
+keyHeader.Size             = UDim2.new(1, 0, 0, 56)
+keyHeader.BackgroundColor3 = C.surface2
+keyHeader.BorderSizePixel  = 0
+keyHeader.ZIndex           = 53
+keyHeader.Parent           = keyCard
+Instance.new("UICorner", keyHeader).CornerRadius = UDim.new(0, 14)
+local khFix = Instance.new("Frame")
+khFix.Size             = UDim2.new(1, 0, 0.5, 0)
+khFix.Position         = UDim2.new(0, 0, 0.5, 0)
+khFix.BackgroundColor3 = C.surface2
+khFix.BorderSizePixel  = 0
+khFix.ZIndex           = 53
+khFix.Parent           = keyHeader
+
+local keyTitle = Instance.new("TextLabel")
+keyTitle.Size                   = UDim2.new(1, 0, 1, 0)
+keyTitle.BackgroundTransparency = 1
+keyTitle.TextColor3             = C.accent
+keyTitle.Text                   = HUB_NAME
+keyTitle.Font                   = Enum.Font.GothamBold
+keyTitle.TextSize               = 22
+keyTitle.ZIndex                 = 54
+keyTitle.Parent                 = keyHeader
+
+local keySub = Instance.new("TextLabel")
+keySub.Size                   = UDim2.new(1, 0, 0, 20)
+keySub.Position               = UDim2.new(0, 0, 0, 64)
+keySub.BackgroundTransparency = 1
+keySub.TextColor3             = C.subtext
+keySub.Text                   = "Enter your license key to continue"
+keySub.Font                   = Enum.Font.Gotham
+keySub.TextSize               = 12
+keySub.ZIndex                 = 53
+keySub.Parent                 = keyCard
+
+local keyInputBG = Instance.new("Frame")
+keyInputBG.Size             = UDim2.new(1, -32, 0, 44)
+keyInputBG.Position         = UDim2.new(0, 16, 0, 96)
+keyInputBG.BackgroundColor3 = C.surface2
+keyInputBG.BorderSizePixel  = 0
+keyInputBG.ZIndex           = 53
+keyInputBG.Parent           = keyCard
+Instance.new("UICorner", keyInputBG).CornerRadius = UDim.new(0, 8)
+local kis = Instance.new("UIStroke")
+kis.Color = C.border
+kis.Thickness = 1
+kis.Parent = keyInputBG
+
+local keyInput = Instance.new("TextBox")
+keyInput.Size                 = UDim2.new(1, -16, 1, 0)
+keyInput.Position             = UDim2.new(0, 8, 0, 0)
+keyInput.BackgroundTransparency = 1
+keyInput.TextColor3           = C.text
+keyInput.PlaceholderText      = "ZEN-XXXX-XXXX-XXXX"
+keyInput.PlaceholderColor3    = C.subtext
+keyInput.Text                 = ""
+keyInput.Font                 = Enum.Font.Code
+keyInput.TextSize             = 14
+keyInput.ClearTextOnFocus     = false
+keyInput.ZIndex               = 54
+keyInput.Parent               = keyInputBG
+
+local keyStatus = Instance.new("TextLabel")
+keyStatus.Size                   = UDim2.new(1, -32, 0, 18)
+keyStatus.Position               = UDim2.new(0, 16, 0, 148)
+keyStatus.BackgroundTransparency = 1
+keyStatus.TextColor3             = C.subtext
+keyStatus.Text                   = "Enter key above"
+keyStatus.TextXAlignment         = Enum.TextXAlignment.Left
+keyStatus.Font                   = Enum.Font.Gotham
+keyStatus.TextSize               = 11
+keyStatus.ZIndex                 = 53
+keyStatus.Parent                 = keyCard
+
+local keySubmit = MakeBtn(
+    keyCard, "Verify Key", C.accent, C.bg,
+    UDim2.new(1, -32, 0, 44), UDim2.new(0, 16, 0, 176), 53
+)
+
+local discordLabel = Instance.new("TextLabel")
+discordLabel.Size                   = UDim2.new(1, 0, 0, 20)
+discordLabel.Position               = UDim2.new(0, 0, 0, 236)
+discordLabel.BackgroundTransparency = 1
+discordLabel.TextColor3             = C.subtext
+discordLabel.Text                   = "Get key at Discord"
+discordLabel.Font                   = Enum.Font.Gotham
+discordLabel.TextSize               = 11
+discordLabel.ZIndex                 = 53
+discordLabel.Parent                 = keyCard
+
+local keyLoading = Instance.new("TextLabel")
+keyLoading.Size                   = UDim2.new(1, 0, 0, 20)
+keyLoading.Position               = UDim2.new(0, 0, 0, 258)
+keyLoading.BackgroundTransparency = 1
+keyLoading.TextColor3             = C.accent
+keyLoading.Text                   = ""
+keyLoading.Font                   = Enum.Font.Gotham
+keyLoading.TextSize               = 11
+keyLoading.ZIndex                 = 53
+keyLoading.Parent                 = keyCard
+
+-- ================================================================
+--  MAP SCREEN
+-- ================================================================
+local mapScreen = Instance.new("CanvasGroup")
+mapScreen.Name              = "MapScreen"
+mapScreen.Size              = UDim2.new(1, 0, 1, 0)
+mapScreen.BackgroundColor3  = C.bg
+mapScreen.BorderSizePixel   = 0
+mapScreen.GroupTransparency = 1
+mapScreen.ZIndex            = 40
+mapScreen.Visible           = false
+mapScreen.Parent            = ScreenGui
+
+local mapBG = Instance.new("Frame")
+mapBG.Size             = UDim2.new(1, 0, 1, 0)
+mapBG.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
+mapBG.BorderSizePixel  = 0
+mapBG.ZIndex           = 40
+mapBG.Parent           = mapScreen
+
+local mapCard = Instance.new("Frame")
+mapCard.Size             = UDim2.new(0, 380, 0, 480)
+mapCard.Position         = UDim2.new(0.5, -190, 0.5, -240)
+mapCard.BackgroundColor3 = C.surface
+mapCard.BorderSizePixel  = 0
+mapCard.ZIndex           = 42
+mapCard.Parent           = mapScreen
+Instance.new("UICorner", mapCard).CornerRadius = UDim.new(0, 14)
+local ms = Instance.new("UIStroke")
+ms.Color = C.border
+ms.Thickness = 1
+ms.Transparency = 0.3
+ms.Parent = mapCard
+
+local mapHeader = Instance.new("Frame")
+mapHeader.Size             = UDim2.new(1, 0, 0, 56)
+mapHeader.BackgroundColor3 = C.surface2
+mapHeader.BorderSizePixel  = 0
+mapHeader.ZIndex           = 43
+mapHeader.Parent           = mapCard
+Instance.new("UICorner", mapHeader).CornerRadius = UDim.new(0, 14)
+local mhFix = Instance.new("Frame")
+mhFix.Size             = UDim2.new(1, 0, 0.5, 0)
+mhFix.Position         = UDim2.new(0, 0, 0.5, 0)
+mhFix.BackgroundColor3 = C.surface2
+mhFix.BorderSizePixel  = 0
+mhFix.ZIndex           = 43
+mhFix.Parent           = mapHeader
+
+local mapTitle = Instance.new("TextLabel")
+mapTitle.Size                   = UDim2.new(0.6, 0, 1, 0)
+mapTitle.Position               = UDim2.new(0, 16, 0, 0)
+mapTitle.BackgroundTransparency = 1
+mapTitle.TextColor3             = C.accent
+mapTitle.Text                   = HUB_NAME
+mapTitle.Font                   = Enum.Font.GothamBold
+mapTitle.TextSize               = 20
+mapTitle.TextXAlignment         = Enum.TextXAlignment.Left
+mapTitle.ZIndex                 = 44
+mapTitle.Parent                 = mapHeader
+
+local placeLabel = Instance.new("TextLabel")
+placeLabel.Size                   = UDim2.new(0.5, 0, 1, 0)
+placeLabel.Position               = UDim2.new(0.5, -8, 0, 0)
+placeLabel.BackgroundTransparency = 1
+placeLabel.TextColor3             = C.subtext
+placeLabel.Text                   = "Place: " .. tostring(game.PlaceId)
+placeLabel.Font                   = Enum.Font.Code
+placeLabel.TextSize               = 10
+placeLabel.TextXAlignment         = Enum.TextXAlignment.Right
+placeLabel.ZIndex                 = 44
+placeLabel.Parent                 = mapHeader
+
+local selectLabel = Instance.new("TextLabel")
+selectLabel.Size                   = UDim2.new(0.5, 0, 0, 20)
+selectLabel.Position               = UDim2.new(0, 16, 0, 64)
+selectLabel.BackgroundTransparency = 1
+selectLabel.TextColor3             = C.text
+selectLabel.Text                   = "Select Place"
+selectLabel.Font                   = Enum.Font.GothamBold
+selectLabel.TextSize               = 13
+selectLabel.TextXAlignment         = Enum.TextXAlignment.Left
+selectLabel.ZIndex                 = 43
+selectLabel.Parent                 = mapCard
+
+local selectedLabel = Instance.new("TextLabel")
+selectedLabel.Size                   = UDim2.new(0.5, -16, 0, 20)
+selectedLabel.Position               = UDim2.new(0.5, 0, 0, 64)
+selectedLabel.BackgroundTransparency = 1
+selectedLabel.TextColor3             = C.subtext
+selectedLabel.Text                   = "None"
+selectedLabel.Font                   = Enum.Font.Gotham
+selectedLabel.TextSize               = 12
+selectedLabel.TextXAlignment         = Enum.TextXAlignment.Right
+selectedLabel.ZIndex                 = 43
+selectedLabel.Parent                 = mapCard
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size                  = UDim2.new(1, -32, 0, 300)
+scrollFrame.Position              = UDim2.new(0, 16, 0, 90)
+scrollFrame.BackgroundColor3      = C.surface2
+scrollFrame.BorderSizePixel       = 0
+scrollFrame.ScrollBarThickness    = 3
+scrollFrame.ScrollBarImageColor3  = C.border
+scrollFrame.CanvasSize            = UDim2.new(0, 0, 0, 0)
+scrollFrame.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+scrollFrame.ZIndex                = 43
+scrollFrame.Parent                = mapCard
+Instance.new("UICorner", scrollFrame).CornerRadius = UDim.new(0, 8)
+
+local scrollList = Instance.new("UIListLayout")
+scrollList.SortOrder = Enum.SortOrder.LayoutOrder
+scrollList.Padding   = UDim.new(0, 2)
+scrollList.Parent    = scrollFrame
+local scrollPad = Instance.new("UIPadding")
+scrollPad.PaddingTop    = UDim.new(0, 4)
+scrollPad.PaddingBottom = UDim.new(0, 4)
+scrollPad.PaddingLeft   = UDim.new(0, 4)
+scrollPad.PaddingRight  = UDim.new(0, 4)
+scrollPad.Parent        = scrollFrame
+
+local autoSelectBtn = MakeBtn(
+    mapCard, "Auto Select Place", C.blue, C.text,
+    UDim2.new(1, -32, 0, 38), UDim2.new(0, 16, 0, 402), 43
+)
+
+local launchBtn = MakeBtn(
+    mapCard, "Launch", C.accent, C.bg,
+    UDim2.new(1, -32, 0, 38), UDim2.new(0, 16, 0, 448), 43
+)
+
+-- ================================================================
+--  ESP FRAME
+-- ================================================================
+local espVisible  = false
+local espKeybind  = Enum.KeyCode.RightControl
+local isBinding   = false
+local selectedMap = nil
+local selectedMapBtn = nil
+
+local espPlayerEnabled  = false
+local espNPCEnabled     = false
+local teamCheckEnabled  = false
+local FillColorPlayer   = Color3.fromRGB(255, 50,  50)
+local FillColorTeammate = Color3.fromRGB(50,  120, 255)
+local FillColorNPC      = Color3.fromRGB(50,  255, 120)
+local npcCache          = {}
+local espConnections    = {}
+local colorPickerOpen   = nil
+
+local Storage = Instance.new("Folder")
+Storage.Name   = "Highlight_Storage"
+Storage.Parent = CoreGui
+
+local espFrame = Instance.new("CanvasGroup")
+espFrame.Name              = "ESPFrame"
+espFrame.Size              = UDim2.new(0, 220, 0, 44 + (32 + 6) * 4 + 6)
+espFrame.Position          = UDim2.new(0, 16, 0, 200)
+espFrame.BackgroundColor3  = C.surface
+espFrame.BorderSizePixel   = 0
+espFrame.GroupTransparency = 1
+espFrame.Visible           = false
+espFrame.ZIndex            = 30
+espFrame.Parent            = ScreenGui
+Instance.new("UICorner", espFrame).CornerRadius = UDim.new(0, 10)
+local espStroke = Instance.new("UIStroke")
+espStroke.Color       = C.border
+espStroke.Thickness   = 1
+espStroke.Transparency = 0.3
+espStroke.Parent      = espFrame
+
+local espTitleBar = Instance.new("Frame")
+espTitleBar.Size             = UDim2.new(1, 0, 0, 36)
+espTitleBar.BackgroundColor3 = C.surface2
+espTitleBar.BorderSizePixel  = 0
+espTitleBar.ZIndex           = 31
+espTitleBar.Parent           = espFrame
+Instance.new("UICorner", espTitleBar).CornerRadius = UDim.new(0, 10)
+local etFix = Instance.new("Frame")
+etFix.Size             = UDim2.new(1, 0, 0.5, 0)
+etFix.Position         = UDim2.new(0, 0, 0.5, 0)
+etFix.BackgroundColor3 = C.surface2
+etFix.BorderSizePixel  = 0
+etFix.ZIndex           = 31
+etFix.Parent           = espTitleBar
+
+local espTitleL = Instance.new("TextLabel")
+espTitleL.Size                   = UDim2.new(0.5, 0, 1, 0)
+espTitleL.Position               = UDim2.new(0, 12, 0, 0)
+espTitleL.BackgroundTransparency = 1
+espTitleL.TextColor3             = C.accent
+espTitleL.Text                   = HUB_NAME
+espTitleL.Font                   = Enum.Font.GothamBold
+espTitleL.TextSize               = 13
+espTitleL.TextXAlignment         = Enum.TextXAlignment.Left
+espTitleL.ZIndex                 = 32
+espTitleL.Parent                 = espTitleBar
+
+local espSubL = Instance.new("TextButton")
+espSubL.Size                   = UDim2.new(0.5, -8, 1, 0)
+espSubL.Position               = UDim2.new(0.5, 0, 0, 0)
+espSubL.BackgroundTransparency = 1
+espSubL.TextColor3             = C.subtext
+espSubL.Text                   = "RightCtrl"
+espSubL.Font                   = Enum.Font.Gotham
+espSubL.TextSize               = 11
+espSubL.TextXAlignment         = Enum.TextXAlignment.Right
+espSubL.AutoButtonColor        = false
+espSubL.BorderSizePixel        = 0
+espSubL.ZIndex                 = 33
+espSubL.Parent                 = espTitleBar
+
+local espContent = Instance.new("Frame")
+espContent.Size                   = UDim2.new(1, -16, 1, -44)
+espContent.Position               = UDim2.new(0, 8, 0, 40)
+espContent.BackgroundTransparency = 1
+espContent.ZIndex                 = 31
+espContent.Parent                 = espFrame
+local espList = Instance.new("UIListLayout")
+espList.SortOrder = Enum.SortOrder.LayoutOrder
+espList.Padding   = UDim.new(0, 6)
+espList.Parent    = espContent
+
+-- Drag
+local dragging       = false
+local dragStartMouse = Vector2.new()
+local dragStartFrame = Vector2.new()
+local targetPos      = Vector2.new(16, 200)
+
+espTitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or
+       input.UserInputType == Enum.UserInputType.Touch then
+        dragging       = true
+        dragStartMouse = Vector2.new(input.Position.X, input.Position.Y)
+        dragStartFrame = Vector2.new(espFrame.Position.X.Offset, espFrame.Position.Y.Offset)
+        targetPos      = dragStartFrame
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or
+       input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+RunService.RenderStepped:Connect(function(dt)
+    if dragging then
+        local mouse  = UserInputService:GetMouseLocation()
+        local delta  = mouse - dragStartMouse
+        local screen = workspace.CurrentCamera.ViewportSize
+        targetPos = Vector2.new(
+            math.clamp(dragStartFrame.X + delta.X, 0, screen.X - espFrame.AbsoluteSize.X),
+            math.clamp(dragStartFrame.Y + delta.Y, 0, screen.Y - espFrame.AbsoluteSize.Y)
+        )
+    end
+    local cur    = Vector2.new(espFrame.Position.X.Offset, espFrame.Position.Y.Offset)
+    local speed  = dragging and 18 or 10
+    local lerped = cur:Lerp(targetPos, math.min(1, dt * speed))
+    espFrame.Position = UDim2.new(0, lerped.X, 0, lerped.Y)
+end)
+
+-- ESP Buttons
+local espDots = {}
+local function MakeESPBtn(text, dotColor, order)
+    local Btn = Instance.new("TextButton")
+    Btn.Size             = UDim2.new(1, 0, 0, 32)
+    Btn.BackgroundColor3 = C.surface2
+    Btn.TextColor3       = C.text
+    Btn.Text             = text
+    Btn.Font             = Enum.Font.Gotham
+    Btn.TextSize         = 12
+    Btn.AutoButtonColor  = false
+    Btn.BorderSizePixel  = 0
+    Btn.LayoutOrder      = order
+    Btn.ZIndex           = 32
+    Btn.ClipsDescendants = true
+    Btn.Parent           = espContent
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 7)
+
+    local DotBtn = Instance.new("TextButton")
+    DotBtn.Size             = UDim2.new(0, 14, 0, 14)
+    DotBtn.Position         = UDim2.new(0, 8, 0.5, -7)
+    DotBtn.BackgroundColor3 = dotColor
+    DotBtn.BorderSizePixel  = 0
+    DotBtn.Text             = ""
+    DotBtn.ZIndex           = 34
+    DotBtn.AutoButtonColor  = false
+    DotBtn.Parent           = Btn
+    Instance.new("UICorner", DotBtn).CornerRadius = UDim.new(1, 0)
+    espDots[Btn] = DotBtn
+
+    Btn.MouseButton1Down:Connect(function()
+        MakeRipple(Btn)
+        TweenService:Create(Btn, tweenFast, { BackgroundColor3 = C.border }):Play()
+    end)
+    Btn.MouseButton1Up:Connect(function()
+        TweenService:Create(Btn, tweenMed, { BackgroundColor3 = C.surface2 }):Play()
+    end)
+    Btn.MouseEnter:Connect(function()
+        TweenService:Create(Btn, tweenFast, { BackgroundColor3 = C.border }):Play()
+    end)
+    Btn.MouseLeave:Connect(function()
+        TweenService:Create(Btn, tweenMed, { BackgroundColor3 = C.surface2 }):Play()
+    end)
+    return Btn, DotBtn
 end
 
-local dbPath = "keys/" .. keyToPath(inputKey)
-local data   = firebaseGet(dbPath)
-
-if type(data) ~= "table" then
-    kickPlayer("Key ไม่ถูกต้อง")
-    return
+local function SetESPDot(btn, color)
+    local d = espDots[btn]
+    if d then TweenService:Create(d, tweenMed, { BackgroundColor3 = color }):Play() end
 end
 
-if data.blacklisted == true then
-    kickPlayer("Key ถูก Blacklist")
-    return
+local BtnPlayer, DotPlayer = MakeESPBtn("Player ESP",  C.muted, 1)
+local BtnNPC,    DotNPC    = MakeESPBtn("NPC ESP",     C.muted, 2)
+local BtnTeam,   DotTeam   = MakeESPBtn("Team Check",  C.muted, 3)
+
+local BtnShutdown = Instance.new("TextButton")
+BtnShutdown.Size             = UDim2.new(1, 0, 0, 32)
+BtnShutdown.BackgroundColor3 = Color3.fromRGB(50, 16, 16)
+BtnShutdown.TextColor3       = Color3.fromRGB(200, 60, 60)
+BtnShutdown.Text             = "Shutdown Script"
+BtnShutdown.Font             = Enum.Font.GothamBold
+BtnShutdown.TextSize         = 12
+BtnShutdown.AutoButtonColor  = false
+BtnShutdown.BorderSizePixel  = 0
+BtnShutdown.LayoutOrder      = 4
+BtnShutdown.ZIndex           = 32
+BtnShutdown.ClipsDescendants = true
+BtnShutdown.Parent           = espContent
+Instance.new("UICorner", BtnShutdown).CornerRadius = UDim.new(0, 7)
+BtnShutdown.MouseButton1Down:Connect(function()
+    MakeRipple(BtnShutdown)
+    TweenService:Create(BtnShutdown, tweenFast, { BackgroundColor3 = Color3.fromRGB(80, 24, 24) }):Play()
+end)
+BtnShutdown.MouseButton1Up:Connect(function()
+    TweenService:Create(BtnShutdown, tweenMed, { BackgroundColor3 = Color3.fromRGB(50, 16, 16) }):Play()
+end)
+BtnShutdown.MouseEnter:Connect(function()
+    TweenService:Create(BtnShutdown, tweenFast, { BackgroundColor3 = Color3.fromRGB(70, 20, 20) }):Play()
+end)
+BtnShutdown.MouseLeave:Connect(function()
+    TweenService:Create(BtnShutdown, tweenMed, { BackgroundColor3 = Color3.fromRGB(50, 16, 16) }):Play()
+end)
+
+-- ================================================================
+--  COLOR PICKER
+-- ================================================================
+local PICKER_W = 200
+local PICKER_H = 220
+local SV_SIZE  = 150
+
+local pickerFrame = Instance.new("CanvasGroup")
+pickerFrame.Name              = "ColorPicker"
+pickerFrame.Size              = UDim2.new(0, PICKER_W, 0, PICKER_H)
+pickerFrame.BackgroundColor3  = C.surface
+pickerFrame.BorderSizePixel   = 0
+pickerFrame.ZIndex            = 50
+pickerFrame.Visible           = false
+pickerFrame.GroupTransparency = 0
+pickerFrame.Parent            = ScreenGui
+Instance.new("UICorner", pickerFrame).CornerRadius = UDim.new(0, 8)
+local pStroke = Instance.new("UIStroke")
+pStroke.Color = C.border
+pStroke.Thickness = 1
+pStroke.Parent = pickerFrame
+
+local svContainer = Instance.new("Frame")
+svContainer.Size             = UDim2.new(0, SV_SIZE, 0, SV_SIZE)
+svContainer.Position         = UDim2.new(0, 8, 0, 8)
+svContainer.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+svContainer.BorderSizePixel  = 0
+svContainer.ZIndex           = 51
+svContainer.ClipsDescendants = true
+svContainer.Parent           = pickerFrame
+Instance.new("UICorner", svContainer).CornerRadius = UDim.new(0, 4)
+
+local svWhite = Instance.new("ImageLabel")
+svWhite.Size                  = UDim2.new(1, 0, 1, 0)
+svWhite.BackgroundTransparency = 1
+svWhite.Image                 = "rbxassetid://0"
+svWhite.ZIndex                = 52
+svWhite.Parent                = svContainer
+local svWG = Instance.new("UIGradient")
+svWG.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+    ColorSequenceKeypoint.new(1, Color3.new(1, 1, 1)),
+})
+svWG.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 0),
+    NumberSequenceKeypoint.new(1, 1),
+})
+svWG.Rotation = 0
+svWG.Parent   = svWhite
+
+local svBlack = Instance.new("ImageLabel")
+svBlack.Size                  = UDim2.new(1, 0, 1, 0)
+svBlack.BackgroundTransparency = 1
+svBlack.Image                 = "rbxassetid://0"
+svBlack.ZIndex                = 53
+svBlack.Parent                = svContainer
+local svBG = Instance.new("UIGradient")
+svBG.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.new(0, 0, 0)),
+    ColorSequenceKeypoint.new(1, Color3.new(0, 0, 0)),
+})
+svBG.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 1),
+    NumberSequenceKeypoint.new(1, 0),
+})
+svBG.Rotation = 90
+svBG.Parent   = svBlack
+
+local svHandle = Instance.new("Frame")
+svHandle.Size             = UDim2.new(0, 12, 0, 12)
+svHandle.AnchorPoint      = Vector2.new(0.5, 0.5)
+svHandle.Position         = UDim2.new(1, 0, 0, 0)
+svHandle.BackgroundColor3 = Color3.new(1, 1, 1)
+svHandle.BorderSizePixel  = 0
+svHandle.ZIndex           = 55
+svHandle.Parent           = svContainer
+Instance.new("UICorner", svHandle).CornerRadius = UDim.new(1, 0)
+
+local hueBar = Instance.new("Frame")
+hueBar.Size             = UDim2.new(0, 16, 0, SV_SIZE)
+hueBar.Position         = UDim2.new(0, SV_SIZE + 16, 0, 8)
+hueBar.BackgroundColor3 = Color3.new(1, 1, 1)
+hueBar.BorderSizePixel  = 0
+hueBar.ZIndex           = 51
+hueBar.Parent           = pickerFrame
+Instance.new("UICorner", hueBar).CornerRadius = UDim.new(0, 4)
+local hueGrad = Instance.new("UIGradient")
+hueGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0/6, Color3.fromRGB(255, 0,   0)),
+    ColorSequenceKeypoint.new(1/6, Color3.fromRGB(255, 255, 0)),
+    ColorSequenceKeypoint.new(2/6, Color3.fromRGB(0,   255, 0)),
+    ColorSequenceKeypoint.new(3/6, Color3.fromRGB(0,   255, 255)),
+    ColorSequenceKeypoint.new(4/6, Color3.fromRGB(0,   0,   255)),
+    ColorSequenceKeypoint.new(5/6, Color3.fromRGB(255, 0,   255)),
+    ColorSequenceKeypoint.new(6/6, Color3.fromRGB(255, 0,   0)),
+})
+hueGrad.Rotation = 90
+hueGrad.Parent   = hueBar
+
+local hueHandle = Instance.new("Frame")
+hueHandle.Size             = UDim2.new(1, 4, 0, 6)
+hueHandle.AnchorPoint      = Vector2.new(0.5, 0.5)
+hueHandle.Position         = UDim2.new(0.5, 0, 0, 0)
+hueHandle.BackgroundColor3 = Color3.new(1, 1, 1)
+hueHandle.BorderSizePixel  = 0
+hueHandle.ZIndex           = 54
+hueHandle.Parent           = hueBar
+Instance.new("UICorner", hueHandle).CornerRadius = UDim.new(0, 3)
+
+local previewF = Instance.new("Frame")
+previewF.Size             = UDim2.new(0, 36, 0, 24)
+previewF.Position         = UDim2.new(0, 8, 0, SV_SIZE + 16)
+previewF.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+previewF.BorderSizePixel  = 0
+previewF.ZIndex           = 51
+previewF.Parent           = pickerFrame
+Instance.new("UICorner", previewF).CornerRadius = UDim.new(0, 4)
+
+local hexBox = Instance.new("TextBox")
+hexBox.Size               = UDim2.new(0, 72, 0, 24)
+hexBox.Position           = UDim2.new(0, 52, 0, SV_SIZE + 16)
+hexBox.BackgroundColor3   = C.surface2
+hexBox.TextColor3         = C.text
+hexBox.Text               = "#FF3232"
+hexBox.Font               = Enum.Font.Code
+hexBox.TextSize           = 11
+hexBox.BorderSizePixel    = 0
+hexBox.ZIndex             = 51
+hexBox.ClearTextOnFocus   = false
+hexBox.Parent             = pickerFrame
+Instance.new("UICorner", hexBox).CornerRadius = UDim.new(0, 4)
+
+local applyBtn = Instance.new("TextButton")
+applyBtn.Size             = UDim2.new(0, 52, 0, 24)
+applyBtn.Position         = UDim2.new(1, -60, 0, SV_SIZE + 16)
+applyBtn.BackgroundColor3 = C.blue
+applyBtn.TextColor3       = C.text
+applyBtn.Text             = "Apply"
+applyBtn.Font             = Enum.Font.GothamBold
+applyBtn.TextSize         = 11
+applyBtn.AutoButtonColor  = false
+applyBtn.BorderSizePixel  = 0
+applyBtn.ZIndex           = 51
+applyBtn.Parent           = pickerFrame
+Instance.new("UICorner", applyBtn).CornerRadius = UDim.new(0, 4)
+
+local pH   = 0
+local pS   = 1
+local pV   = 1
+local pTarget = nil
+local isDSV   = false
+local isDHue  = false
+
+local function ColorToHex(c)
+    return string.format("#%02X%02X%02X",
+        math.floor(c.R * 255 + 0.5),
+        math.floor(c.G * 255 + 0.5),
+        math.floor(c.B * 255 + 0.5)
+    )
+end
+local function HexToColor(hex)
+    hex = hex:gsub("#", "")
+    if #hex ~= 6 then return nil end
+    local r = tonumber(hex:sub(1,2), 16)
+    local g = tonumber(hex:sub(3,4), 16)
+    local b = tonumber(hex:sub(5,6), 16)
+    if not (r and g and b) then return nil end
+    return Color3.fromRGB(r, g, b)
+end
+local function UpdatePickerUI()
+    svContainer.BackgroundColor3 = Color3.fromHSV(pH, 1, 1)
+    svHandle.Position            = UDim2.new(pS, 0, 1 - pV, 0)
+    hueHandle.Position           = UDim2.new(0.5, 0, pH, 0)
+    local col                    = Color3.fromHSV(pH, pS, pV)
+    previewF.BackgroundColor3    = col
+    hexBox.Text                  = ColorToHex(col)
 end
 
-if type(data.expires_at) == "string" and data.expires_at ~= "" then
-    local y,mo,d,h,mi,s = data.expires_at:match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
-    if y then
-        local expireTime = os.time({
-            year  = tonumber(y),  month = tonumber(mo), day = tonumber(d),
-            hour  = tonumber(h),  min   = tonumber(mi), sec = tonumber(s)
-        })
-        if os.time() > expireTime then
-            kickPlayer("Key หมดอายุแล้ว")
-            return
+svContainer.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        isDSV = true
+        local a = svContainer.AbsolutePosition
+        local s = svContainer.AbsoluteSize
+        pS = math.clamp((i.Position.X - a.X) / s.X, 0, 1)
+        pV = 1 - math.clamp((i.Position.Y - a.Y) / s.Y, 0, 1)
+        UpdatePickerUI()
+    end
+end)
+hueBar.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        isDHue = true
+        local a = hueBar.AbsolutePosition
+        local s = hueBar.AbsoluteSize
+        pH = math.clamp((i.Position.Y - a.Y) / s.Y, 0, 1)
+        UpdatePickerUI()
+    end
+end)
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        isDSV  = false
+        isDHue = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseMovement then
+        if isDSV then
+            local a = svContainer.AbsolutePosition
+            local s = svContainer.AbsoluteSize
+            pS = math.clamp((i.Position.X - a.X) / s.X, 0, 1)
+            pV = 1 - math.clamp((i.Position.Y - a.Y) / s.Y, 0, 1)
+            UpdatePickerUI()
+        end
+        if isDHue then
+            local a = hueBar.AbsolutePosition
+            local s = hueBar.AbsoluteSize
+            pH = math.clamp((i.Position.Y - a.Y) / s.Y, 0, 1)
+            UpdatePickerUI()
+        end
+    end
+end)
+hexBox.FocusLost:Connect(function(enter)
+    if enter then
+        local col = HexToColor(hexBox.Text)
+        if col then
+            local h, s, v = Color3.toHSV(col)
+            pH, pS, pV = h, s, v
+            UpdatePickerUI()
+        else
+            hexBox.Text = ColorToHex(Color3.fromHSV(pH, pS, pV))
+        end
+    end
+end)
+
+local function OpenPicker(btn, target)
+    if colorPickerOpen == btn then
+        pickerFrame.Visible = false
+        colorPickerOpen     = nil
+        return
+    end
+    colorPickerOpen = btn
+    pTarget         = target
+    local screen    = workspace.CurrentCamera.ViewportSize
+    local fx        = espFrame.Position.X.Offset
+    local px        = fx + espFrame.AbsoluteSize.X + 8
+    if px + PICKER_W + 8 > screen.X then
+        px = fx - PICKER_W - 8
+    end
+    local fy = espFrame.AbsolutePosition.Y
+    local py = math.clamp(fy, 0, screen.Y - PICKER_H - 8)
+    pickerFrame.Position = UDim2.new(0, px, 0, py)
+    pickerFrame.Visible  = true
+    UpdatePickerUI()
+end
+
+applyBtn.MouseButton1Click:Connect(function()
+    local col = Color3.fromHSV(pH, pS, pV)
+    if pTarget == "player" then
+        FillColorPlayer = col
+        SetESPDot(BtnPlayer, col)
+    elseif pTarget == "npc" then
+        FillColorNPC = col
+        SetESPDot(BtnNPC, col)
+    elseif pTarget == "team" then
+        FillColorTeammate = col
+        SetESPDot(BtnTeam, col)
+    end
+    for _, h in ipairs(Storage:GetChildren()) do
+        if pTarget == "player" and h.Name:sub(1,2) == "P_" then h.FillColor = col end
+        if pTarget == "npc"    and h.Name:sub(1,4) == "NPC_" then h.FillColor = col end
+    end
+    pickerFrame.Visible = false
+    colorPickerOpen     = nil
+end)
+
+DotPlayer.MouseButton1Click:Connect(function() OpenPicker(BtnPlayer, "player") end)
+DotNPC.MouseButton1Click:Connect(function()    OpenPicker(BtnNPC,    "npc")    end)
+DotTeam.MouseButton1Click:Connect(function()   OpenPicker(BtnTeam,   "team")   end)
+
+-- ESP Fade
+local espFadeAlpha  = 1
+local espFadeTarget = 1
+
+RunService.RenderStepped:Connect(function(dt)
+    if math.abs(espFadeAlpha - espFadeTarget) > 0.002 then
+        espFadeAlpha = espFadeAlpha + (espFadeTarget - espFadeAlpha) * math.min(1, dt * 9)
+        espFrame.GroupTransparency = espFadeAlpha
+    else
+        espFadeAlpha = espFadeTarget
+        espFrame.GroupTransparency = espFadeTarget
+        if espFadeTarget == 1 then
+            espFrame.Visible    = false
+            pickerFrame.Visible = false
+            colorPickerOpen     = nil
+        end
+    end
+end)
+
+local function ShowESP()
+    espFrame.Visible  = true
+    espFadeTarget     = 0
+end
+local function HideESP()
+    espFadeTarget = 1
+end
+
+-- ESP functions
+local function IsTeammate(plr)
+    return teamCheckEnabled
+        and Players.LocalPlayer.Team ~= nil
+        and plr.Team ~= nil
+        and plr.Team == Players.LocalPlayer.Team
+end
+local function AddHL(name, adornee, color)
+    local h = Storage:FindFirstChild(name)
+    if h then h.FillColor = color return end
+    h = Instance.new("Highlight")
+    h.Name               = name
+    h.FillColor          = color
+    h.DepthMode          = "AlwaysOnTop"
+    h.FillTransparency   = 0.5
+    h.OutlineColor       = Color3.new(1, 1, 1)
+    h.OutlineTransparency = 0
+    h.Adornee            = adornee
+    h.Parent             = Storage
+end
+local function RemHL(name)
+    local h = Storage:FindFirstChild(name)
+    if h then h:Destroy() end
+end
+local function RefreshPlayerColors()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= Players.LocalPlayer then
+            local h = Storage:FindFirstChild("P_" .. plr.Name)
+            if h then
+                h.FillColor = IsTeammate(plr) and FillColorTeammate or FillColorPlayer
+            end
+        end
+    end
+end
+local function HighlightPlayer(plr)
+    if plr == Players.LocalPlayer then return end
+    if plr.Character and espPlayerEnabled then
+        AddHL("P_"..plr.Name, plr.Character, IsTeammate(plr) and FillColorTeammate or FillColorPlayer)
+    end
+    espConnections[plr] = plr.CharacterAdded:Connect(function(char)
+        RemHL("P_"..plr.Name)
+        task.wait()
+        if espPlayerEnabled then
+            AddHL("P_"..plr.Name, char, IsTeammate(plr) and FillColorTeammate or FillColorPlayer)
+        end
+    end)
+end
+local function ScanNPCs()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid")
+            and not Players:GetPlayerFromCharacter(obj) then
+            local id = "NPC_" .. obj:GetDebugId()
+            if not npcCache[id] then
+                npcCache[id] = true
+                AddHL(id, obj, FillColorNPC)
+                obj.AncestryChanged:Connect(function()
+                    if not obj:IsDescendantOf(workspace) then
+                        npcCache[id] = nil
+                        RemHL(id)
+                    end
+                end)
+            end
         end
     end
 end
 
--- ================================================================
---  เช็ค HWID
--- ================================================================
-local currentHWID = getHWID()
-local savedHWID   = data.hwid
+-- ESP Toggles
+local playerOn = false
+local npcOn    = false
+local teamOn   = false
 
-if not savedHWID or savedHWID == "" or savedHWID == false then
-    local ok = firebasePatch(dbPath, {hwid = currentHWID})
-    if not ok then
-        task.wait(1)
-        ok = firebasePatch(dbPath, {hwid = currentHWID})
+BtnPlayer.MouseButton1Click:Connect(function()
+    playerOn         = not playerOn
+    espPlayerEnabled = playerOn
+    if playerOn then
+        SetESPDot(BtnPlayer, FillColorPlayer)
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Players.LocalPlayer and plr.Character then
+                AddHL("P_"..plr.Name, plr.Character, IsTeammate(plr) and FillColorTeammate or FillColorPlayer)
+            end
+        end
+    else
+        SetESPDot(BtnPlayer, C.muted)
+        for _, plr in ipairs(Players:GetPlayers()) do RemHL("P_"..plr.Name) end
     end
-else
-    if tostring(savedHWID) ~= tostring(currentHWID) then
-        kickPlayer("HWID ไม่ตรง\nReset HWID ได้ที่ Discord")
+end)
+
+BtnNPC.MouseButton1Click:Connect(function()
+    npcOn         = not npcOn
+    espNPCEnabled = npcOn
+    if npcOn then
+        SetESPDot(BtnNPC, FillColorNPC)
+        ScanNPCs()
+    else
+        SetESPDot(BtnNPC, C.muted)
+        for _, h in ipairs(Storage:GetChildren()) do
+            if h.Name:sub(1,4) == "NPC_" then h:Destroy() end
+        end
+        npcCache = {}
+    end
+end)
+
+BtnTeam.MouseButton1Click:Connect(function()
+    teamOn         = not teamOn
+    teamCheckEnabled = teamOn
+    SetESPDot(BtnTeam, teamOn and FillColorTeammate or C.muted)
+    RefreshPlayerColors()
+end)
+
+BtnShutdown.MouseButton1Click:Connect(function()
+    Storage:Destroy()
+    ScreenGui:Destroy()
+    pickerFrame:Destroy()
+    for _, c in pairs(espConnections) do c:Disconnect() end
+    espConnections = {}
+end)
+
+espSubL.MouseButton1Click:Connect(function()
+    if isBinding then return end
+    isBinding = true
+    espSubL.Text       = "press key"
+    espSubL.TextColor3 = C.orange
+    local conn
+    conn = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            espKeybind         = input.KeyCode
+            espSubL.Text       = input.KeyCode.Name
+            espSubL.TextColor3 = C.subtext
+            isBinding          = false
+            conn:Disconnect()
+        end
+    end)
+end)
+espSubL.MouseEnter:Connect(function()
+    if not isBinding then TweenService:Create(espSubL, tweenFast, { TextColor3 = C.text }):Play() end
+end)
+espSubL.MouseLeave:Connect(function()
+    if not isBinding then TweenService:Create(espSubL, tweenMed, { TextColor3 = C.subtext }):Play() end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe or isBinding then return end
+    if input.KeyCode == espKeybind then
+        espVisible = not espVisible
+        if espVisible then ShowESP() else HideESP() end
+    end
+end)
+
+Players.PlayerAdded:Connect(HighlightPlayer)
+for _, v in ipairs(Players:GetPlayers()) do HighlightPlayer(v) end
+Players.PlayerRemoving:Connect(function(plr)
+    RemHL("P_" .. plr.Name)
+    if espConnections[plr] then
+        espConnections[plr]:Disconnect()
+        espConnections[plr] = nil
+    end
+end)
+local function ScheduleScan()
+    task.delay(6, function()
+        if espNPCEnabled then ScanNPCs() end
+        ScheduleScan()
+    end)
+end
+ScheduleScan()
+
+-- ================================================================
+--  MAP SELECTOR LOGIC
+-- ================================================================
+local function BuildMapList()
+    for _, child in ipairs(scrollFrame:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+    local currentPlace = game.PlaceId
+    for i, mapData in ipairs(SUPPORTED_MAPS) do
+        local isMatch  = (mapData.placeId == 0 or mapData.placeId == currentPlace)
+        local btnColor = isMatch and C.surface or Color3.fromRGB(22, 22, 28)
+
+        local btn = Instance.new("TextButton")
+        btn.Size             = UDim2.new(1, 0, 0, 36)
+        btn.BackgroundColor3 = btnColor
+        btn.TextColor3       = isMatch and C.text or C.subtext
+        btn.Text             = mapData.name
+        btn.Font             = Enum.Font.Gotham
+        btn.TextSize         = 12
+        btn.AutoButtonColor  = false
+        btn.BorderSizePixel  = 0
+        btn.LayoutOrder      = i
+        btn.ZIndex           = 44
+        btn.ClipsDescendants = true
+        btn.Parent           = scrollFrame
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+        if isMatch then
+            local dot = Instance.new("Frame")
+            dot.Size             = UDim2.new(0, 6, 0, 6)
+            dot.Position         = UDim2.new(0, 10, 0.5, -3)
+            dot.BackgroundColor3 = C.accent
+            dot.BorderSizePixel  = 0
+            dot.ZIndex           = 45
+            dot.Parent           = btn
+            Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+        end
+
+        btn.MouseButton1Down:Connect(function() MakeRipple(btn) end)
+        btn.MouseButton1Click:Connect(function()
+            if selectedMapBtn then
+                TweenService:Create(selectedMapBtn, tweenMed, { BackgroundColor3 = Color3.fromRGB(22, 22, 28) }):Play()
+                selectedMapBtn.TextColor3 = C.subtext
+            end
+            selectedMap    = mapData
+            selectedMapBtn = btn
+            TweenService:Create(btn, tweenMed, { BackgroundColor3 = C.accent:Lerp(C.surface2, 0.7) }):Play()
+            btn.TextColor3          = C.text
+            selectedLabel.Text      = mapData.name
+        end)
+        btn.MouseEnter:Connect(function()
+            if btn ~= selectedMapBtn then
+                TweenService:Create(btn, tweenFast, { BackgroundColor3 = C.surface }):Play()
+            end
+        end)
+        btn.MouseLeave:Connect(function()
+            if btn ~= selectedMapBtn then
+                TweenService:Create(btn, tweenMed, { BackgroundColor3 = btnColor }):Play()
+            end
+        end)
+    end
+end
+
+autoSelectBtn.MouseButton1Click:Connect(function()
+    local placeId = game.PlaceId
+    for _, mapData in ipairs(SUPPORTED_MAPS) do
+        if mapData.placeId == placeId then
+            selectedMap        = mapData
+            selectedLabel.Text = mapData.name
+            return
+        end
+    end
+    selectedMap        = SUPPORTED_MAPS[1]
+    selectedLabel.Text = SUPPORTED_MAPS[1].name
+end)
+
+launchBtn.MouseButton1Click:Connect(function()
+    if not selectedMap then
+        selectedLabel.Text      = "Select a map first!"
+        selectedLabel.TextColor3 = C.red
+        task.delay(2, function()
+            selectedLabel.TextColor3 = C.subtext
+            selectedLabel.Text       = "None"
+        end)
         return
     end
-end
+    TweenService:Create(mapScreen, tweenSlow, { GroupTransparency = 1 }):Play()
+    task.delay(0.35, function()
+        mapScreen.Visible = false
+        espVisible        = true
+        ShowESP()
+        if selectedMap.script and selectedMap.script ~= "" then
+            task.spawn(function()
+                local ok, err = pcall(function()
+                    loadstring(game:HttpGet(selectedMap.script))()
+                end)
+                if not ok then
+                    warn("[ZEN] Script error: " .. tostring(err))
+                end
+            end)
+        end
+    end)
+end)
 
 -- ================================================================
---  ผ่าน → เช็ค PlaceId โหลด Script ของแมพนั้น
+--  KEY VERIFY FLOW
 -- ================================================================
-local placeId    = game.PlaceId
-local scriptLink = SUPPORTED_MAPS[placeId]
-
-if not scriptLink then
-    kickPlayer("This Game is not Supported.\n แมพไม่รองรับ")
-    return
+local function ShowMapScreen()
+    BuildMapList()
+    mapScreen.Visible           = true
+    mapScreen.GroupTransparency = 1
+    TweenService:Create(keyScreen, tweenSlow, { GroupTransparency = 1 }):Play()
+    task.delay(0.35, function()
+        keyScreen.Visible = false
+        TweenService:Create(mapScreen, tweenSlow, { GroupTransparency = 0 }):Play()
+    end)
+    for _, mapData in ipairs(SUPPORTED_MAPS) do
+        if mapData.placeId == game.PlaceId then
+            selectedMap        = mapData
+            selectedLabel.Text = mapData.name
+            return
+        end
+    end
+    selectedMap        = SUPPORTED_MAPS[1]
+    selectedLabel.Text = SUPPORTED_MAPS[1].name
 end
 
-print("[" .. HUB_NAME .. "] PlaceId: " .. tostring(placeId) .. " | กำลังโหลด...")
-loadstring(game:HttpGet(scriptLink))()
+local isVerifying = false
+
+local function VerifyKey()
+    if isVerifying then return end
+    local inputKey = keyInput.Text:gsub("%s", "")
+    if inputKey == "" then
+        keyStatus.Text      = "Please enter a key"
+        keyStatus.TextColor3 = C.red
+        return
+    end
+    isVerifying          = true
+    keyStatus.Text       = "Verifying"
+    keyStatus.TextColor3 = C.subtext
+    keyLoading.Text      = "Connecting to database"
+    keySubmit.Text       = "Verifying"
+
+    task.spawn(function()
+        local dbPath = "keys/" .. keyToPath(inputKey)
+        local data   = firebaseGet(dbPath)
+
+        if type(data) ~= "table" then
+            keyStatus.Text       = "Invalid key"
+            keyStatus.TextColor3 = C.red
+            keyLoading.Text      = ""
+            keySubmit.Text       = "Verify Key"
+            isVerifying          = false
+            return
+        end
+        if data.blacklisted == true then
+            keyStatus.Text       = "Key is blacklisted"
+            keyStatus.TextColor3 = C.red
+            keyLoading.Text      = ""
+            keySubmit.Text       = "Verify Key"
+            isVerifying          = false
+            return
+        end
+        if type(data.expires_at) == "string" and data.expires_at ~= "" then
+            local y, mo, d, h, mi, s = data.expires_at:match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
+            if y then
+                local expireTime = os.time({
+                    year  = tonumber(y),
+                    month = tonumber(mo),
+                    day   = tonumber(d),
+                    hour  = tonumber(h),
+                    min   = tonumber(mi),
+                    sec   = tonumber(s),
+                })
+                if os.time() > expireTime then
+                    keyStatus.Text       = "Key expired"
+                    keyStatus.TextColor3 = C.red
+                    keyLoading.Text      = ""
+                    keySubmit.Text       = "Verify Key"
+                    isVerifying          = false
+                    return
+                end
+            end
+        end
+        local currentHWID = getHWID()
+        local savedHWID   = data.hwid
+        if not savedHWID or savedHWID == "" or savedHWID == false then
+            firebasePatch(dbPath, { hwid = currentHWID })
+        else
+            if tostring(savedHWID) ~= tostring(currentHWID) then
+                keyStatus.Text       = "HWID mismatch - Reset at Discord"
+                keyStatus.TextColor3 = C.red
+                keyLoading.Text      = ""
+                keySubmit.Text       = "Verify Key"
+                isVerifying          = false
+                return
+            end
+        end
+
+        keyStatus.Text       = "Key verified!"
+        keyStatus.TextColor3 = C.green
+        keyLoading.Text      = ""
+        keySubmit.Text       = "Success"
+        task.wait(0.6)
+        ShowMapScreen()
+        isVerifying = false
+    end)
+end
+
+keySubmit.MouseButton1Click:Connect(VerifyKey)
+keyInput.FocusLost:Connect(function(enter)
+    if enter then VerifyKey() end
+end)
+
+task.spawn(function()
+    task.wait(0.1)
+    local autoKey = tostring(_G.Key or ""):gsub("%s", "")
+    if autoKey ~= "" then
+        keyInput.Text = autoKey
+        VerifyKey()
+    end
+end)
